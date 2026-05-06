@@ -1917,13 +1917,27 @@ function escapeForAttribute(str) {
 /* ---- modal ---- */
 function openModal(item) {
   currentLyricsData = item;
-  document.getElementById('modal-track').textContent = item.trackName || '—';
+  document.getElementById('modal-track').textContent = item.trackName || item.title || '—';
   document.getElementById('modal-artist').textContent = item.artistName || '—';
   const dur = item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '';
   document.getElementById('modal-album').textContent = (item.albumName || '') + (dur ? ' · ' + dur : '');
 
+  // Check if it's an upload or favorite (only has plain lyrics)
+  const isUploadOrFavorite = item.source === 'upload' || item.source === 'favorite';
   const hasSynced = item.syncedLyrics && item.syncedLyrics.trim();
-  lyricsTab = hasSynced ? 'synced' : 'plain';
+  
+  // Show/hide tabs based on content
+  const modalTabs = document.querySelector('.modal-tabs');
+  if (isUploadOrFavorite || !hasSynced) {
+    // Hide tabs for uploads/favorites or if no synced lyrics
+    modalTabs.style.display = 'none';
+    lyricsTab = 'plain';
+  } else {
+    // Show tabs for API songs with synced lyrics
+    modalTabs.style.display = 'flex';
+    lyricsTab = hasSynced ? 'synced' : 'plain';
+  }
+  
   renderLyrics();
   document.getElementById('modal-overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
