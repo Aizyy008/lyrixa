@@ -994,6 +994,10 @@
 </head>
 <body>
 
+<!-- Load environment variables and configuration -->
+<script src="env.js"></script>
+<script src="config.js"></script>
+
 <canvas id="bg-canvas"></canvas>
 
 <header>
@@ -1166,10 +1170,10 @@
 </div>
 
 <script>
-// API Configuration - points to Render backend
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
-  : 'https://your-render-app.onrender.com'; // Replace with your Render URL
+// API Configuration - loaded from config.js
+const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:3000';
+
+console.log('🔗 API Base URL:', API_BASE_URL);
 
 // SVG Icons Map
 const ICONS = {
