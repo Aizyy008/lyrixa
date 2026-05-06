@@ -1469,16 +1469,30 @@ function setCategory(category) {
   document.querySelectorAll('.category-tab').forEach(btn => {
     btn.classList.toggle('active', btn.textContent.trim().includes(category) || (category === '' && btn.textContent.trim().includes('All')));
   });
-  doSearch(); // Trigger search with new category
+  
+  // Only search if there's a search query or if we're filtering uploads
+  const searchQuery = document.getElementById('q-input')?.value || '';
+  if (searchQuery || currentSource === 'uploads') {
+    doSearch();
+  }
 }
 
 /* ---- source filtering ---- */
 function setSource(source) {
   currentSource = source;
   document.querySelectorAll('.source-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.textContent.includes(source.charAt(0).toUpperCase() + source.slice(1)));
+    const btnText = btn.textContent.toLowerCase();
+    const isActive = (source === 'all' && btnText.includes('all')) ||
+                     (source === 'api' && btnText.includes('api')) ||
+                     (source === 'uploads' && btnText.includes('uploads'));
+    btn.classList.toggle('active', isActive);
   });
-  doSearch(); // Trigger search with new source
+  
+  // Only search if there's a search query or if we're filtering uploads
+  const searchQuery = document.getElementById('q-input')?.value || '';
+  if (searchQuery || source === 'uploads') {
+    doSearch();
+  }
 }
 
 /* ---- file upload ---- */
