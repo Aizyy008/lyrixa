@@ -312,6 +312,76 @@
     border-color: var(--accent);
   }
   .result-card:hover::before { opacity: 1; }
+  
+  .favorite-btn {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--paper2);
+    border: 1px solid var(--paper3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    z-index: 10;
+    font-size: 16px;
+  }
+  .favorite-btn:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(1.1);
+  }
+  .favorite-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+  .favorite-btn svg {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    fill: none;
+  }
+  .favorite-btn.active svg {
+    fill: currentColor;
+  }
+  
+  .category-selection {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .category-option {
+    padding: 12px 16px;
+    border: 2px solid var(--paper3);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+  }
+  .category-option:hover {
+    border-color: var(--accent);
+    background: var(--paper2);
+  }
+  .category-option.selected {
+    border-color: var(--accent);
+    background: rgba(200, 69, 26, 0.1);
+  }
+  .category-option-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
   .result-num {
     font-family: var(--mono);
@@ -1177,9 +1247,9 @@
 </div>
 
 <div class="source-toggle">
-  <button class="source-btn active" onclick="setSource('all')">All Sources</button>
-  <button class="source-btn" onclick="setSource('api')">API Only</button>
-  <button class="source-btn" onclick="setSource('uploads')">Uploads Only</button>
+  <button class="source-btn" onclick="setSource('all')">All</button>
+  <button class="source-btn" onclick="setSource('favorites')">Favorites</button>
+  <button class="source-btn" onclick="setSource('uploads')">Uploads</button>
 </div>
 
 <div class="category-filter" id="category-filter" style="display: none;">
@@ -1265,6 +1335,26 @@
   <button class="notification-close" onclick="hideNotification()">✕</button>
 </div>
 
+<!-- CATEGORY SELECTION MODAL -->
+<div class="modal-overlay" id="category-modal-overlay" onclick="closeCategoryModal(event)">
+  <div class="modal" style="max-width: 400px;">
+    <div class="modal-header">
+      <div>
+        <div class="modal-track">Select Category</div>
+        <div class="modal-artist">Choose a category for this favorite</div>
+      </div>
+      <button class="modal-close" onclick="closeCategoryModal(true)">✕</button>
+    </div>
+    <div class="modal-body" style="padding: 1.5rem 2rem;">
+      <div id="category-selection" class="category-selection"></div>
+      <div style="display: flex; gap: 12px; margin-top: 1.5rem;">
+        <button class="btn-search" onclick="closeCategoryModal(true)" style="flex: 1; background: var(--paper3); color: var(--ink);">Cancel</button>
+        <button class="btn-search" onclick="confirmAddFavorite()" style="flex: 1;">Add to Favorites</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // API Configuration - loaded from config.js
 const API_BASE_URL = window.APP_CONFIG?.API_BASE_URL || 'http://localhost:3000';
@@ -1289,8 +1379,10 @@ let currentTab = 'simple';
 let currentLyricsData = null;
 let lyricsTab = 'synced';
 let currentCategory = '';
-let currentSource = 'all';
+let currentSource = '';  // Empty by default, no source selected
 let notificationTimeout = null;
+let pendingFavorite = null;  // Store song data while selecting category
+let availableCategories = [];  // Store categories for selection
 
 /* ---- notification system ---- */
 function showNotification(title, message, type = 'success') {
@@ -1333,6 +1425,136 @@ function hideNotification() {
   if (notificationTimeout) {
     clearTimeout(notificationTimeout);
     notificationTimeout = null;
+  }
+}
+
+/* ---- favorites system ---- */
+function toggleFavorite(event, item) {
+  event.stopPropagation(); // Prevent card click
+  
+  // If already favorited (has id and is_favorite), remove it
+  if (item.id && item.is_favorite) {
+    removeFavorite(item.id);
+  } else if (item.source === 'upload' && item.id) {
+    // If it's an upload, just toggle the favorite flag
+    addUploadToFavorites(item.id);
+  } else {
+    // If it's from API, show category selection
+    showCategoryModal(item);
+  }
+}
+
+async function addUploadToFavorites(id) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/favorites`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uploadId: id })
+    });
+    
+    if (response.ok) {
+      showNotification('Added to Favorites', 'Song added to your favorites!', 'success');
+      // Refresh current view
+      if (currentSource) doSearch();
+    } else {
+      showNotification('Error', 'Failed to add to favorites', 'error');
+    }
+  } catch (error) {
+    console.error('Favorite error:', error);
+    showNotification('Error', 'Network error occurred', 'error');
+  }
+}
+
+async function removeFavorite(id) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/favorites/${id}`, {
+      method: 'DELETE'
+    });
+    
+    if (response.ok) {
+      showNotification('Removed', 'Removed from favorites', 'success');
+      // Refresh current view
+      if (currentSource) doSearch();
+    } else {
+      showNotification('Error', 'Failed to remove from favorites', 'error');
+    }
+  } catch (error) {
+    console.error('Remove favorite error:', error);
+    showNotification('Error', 'Network error occurred', 'error');
+  }
+}
+
+function showCategoryModal(item) {
+  pendingFavorite = item;
+  
+  const categorySelection = document.getElementById('category-selection');
+  categorySelection.innerHTML = '';
+  
+  availableCategories.forEach(cat => {
+    const option = document.createElement('div');
+    option.className = 'category-option';
+    option.onclick = () => selectCategory(cat.id);
+    option.innerHTML = `
+      <div class="category-option-icon" style="color: ${cat.color};">
+        ${getIconSVG(cat.icon)}
+      </div>
+      <span>${cat.name}</span>
+    `;
+    categorySelection.appendChild(option);
+  });
+  
+  document.getElementById('category-modal-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function selectCategory(categoryId) {
+  document.querySelectorAll('.category-option').forEach(opt => {
+    opt.classList.remove('selected');
+  });
+  event.target.closest('.category-option').classList.add('selected');
+  pendingFavorite.selectedCategoryId = categoryId;
+}
+
+function closeCategoryModal(force) {
+  if (force === true || force.target === document.getElementById('category-modal-overlay')) {
+    document.getElementById('category-modal-overlay').classList.remove('open');
+    document.body.style.overflow = '';
+    pendingFavorite = null;
+  }
+}
+
+async function confirmAddFavorite() {
+  if (!pendingFavorite || !pendingFavorite.selectedCategoryId) {
+    showNotification('Category Required', 'Please select a category', 'error');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/favorites`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: pendingFavorite.trackName,
+        artist: pendingFavorite.artistName,
+        album: pendingFavorite.albumName,
+        lyrics: pendingFavorite.plainLyrics || '',
+        syncedLyrics: pendingFavorite.syncedLyrics || '',
+        categoryId: pendingFavorite.selectedCategoryId
+      })
+    });
+    
+    if (response.ok) {
+      showNotification('Added to Favorites!', `"${pendingFavorite.trackName}" saved to favorites`, 'success');
+      closeCategoryModal(true);
+      // Refresh if viewing favorites
+      if (currentSource === 'favorites') doSearch();
+    } else {
+      const error = await response.json();
+      showNotification('Error', error.error || 'Failed to add to favorites', 'error');
+    }
+  } catch (error) {
+    console.error('Add favorite error:', error);
+    showNotification('Error', 'Network error occurred', 'error');
   }
 }
 
@@ -1441,6 +1663,9 @@ async function loadCategories() {
     const response = await fetch(`${API_BASE_URL}/api/categories`);
     const categories = await response.json();
     
+    // Store for favorites modal
+    availableCategories = categories;
+    
     const categoryTabs = document.getElementById('category-tabs');
     categoryTabs.innerHTML = `
       <button class="category-tab active" onclick="setCategory('')">
@@ -1483,16 +1708,13 @@ function setSource(source) {
   document.querySelectorAll('.source-btn').forEach(btn => {
     const btnText = btn.textContent.toLowerCase();
     const isActive = (source === 'all' && btnText.includes('all')) ||
-                     (source === 'api' && btnText.includes('api')) ||
+                     (source === 'favorites' && btnText.includes('favorites')) ||
                      (source === 'uploads' && btnText.includes('uploads'));
     btn.classList.toggle('active', isActive);
   });
   
-  // Only search if there's a search query or if we're filtering uploads
-  const searchQuery = document.getElementById('q-input')?.value || '';
-  if (searchQuery || source === 'uploads') {
-    doSearch();
-  }
+  // Always search when source is selected
+  doSearch();
 }
 
 /* ---- file upload ---- */
@@ -1565,6 +1787,13 @@ async function doSearch() {
   
   if (isUpload) return; // Don't search when on upload tab
   
+  // If no source selected, don't search
+  if (!currentSource) {
+    document.getElementById('empty-state').style.display = 'flex';
+    document.getElementById('results-section').style.display = 'none';
+    return;
+  }
+  
   let url, isExact = false;
   const searchQuery = document.getElementById('q-input')?.value || '';
 
@@ -1584,10 +1813,22 @@ async function doSearch() {
       if (album) url += `&album_name=${encodeURIComponent(album)}`;
     }
   } else {
-    // Use our new combined API
-    url = `${API_BASE_URL}/api/search?q=${encodeURIComponent(searchQuery)}`;
-    if (currentCategory) url += `&category=${encodeURIComponent(currentCategory)}`;
-    if (currentSource !== 'all') url += `&source=${encodeURIComponent(currentSource)}`;
+    // Handle different sources
+    if (currentSource === 'favorites') {
+      url = `${API_BASE_URL}/api/favorites`;
+      if (currentCategory) url += `?category=${encodeURIComponent(currentCategory)}`;
+    } else if (currentSource === 'uploads') {
+      url = `${API_BASE_URL}/api/user-lyrics`;
+      const params = [];
+      if (searchQuery) params.push(`search=${encodeURIComponent(searchQuery)}`);
+      if (currentCategory) params.push(`category=${encodeURIComponent(currentCategory)}`);
+      if (params.length) url += '?' + params.join('&');
+    } else {
+      // All sources
+      url = `${API_BASE_URL}/api/search?q=${encodeURIComponent(searchQuery)}`;
+      if (currentCategory) url += `&category=${encodeURIComponent(currentCategory)}`;
+      if (currentSource !== 'all') url += `&source=${encodeURIComponent(currentSource)}`;
+    }
   }
 
   showLoading();
@@ -1598,6 +1839,7 @@ async function doSearch() {
     if (isExact) showResults(data && !data.code ? [data] : [], true);
     else showResults(Array.isArray(data) ? data : [], false);
   } catch (e) {
+    console.error('Search error:', e);
     showResults([], false);
   }
 }
@@ -1613,9 +1855,11 @@ function showResults(items, isExact) {
   document.getElementById('loading').classList.remove('visible');
   if (items.length === 0) {
     document.getElementById('no-results').style.display = 'block';
+    document.getElementById('empty-state').style.display = 'none';
     return;
   }
   document.getElementById('results-section').style.display = 'block';
+  document.getElementById('empty-state').style.display = 'none';
   document.getElementById('results-count').textContent = `${items.length} track${items.length!==1?'s':''} found`;
   
   // Add category badges to results
@@ -1631,19 +1875,31 @@ function showResults(items, isExact) {
     const hasPlain = item.plainLyrics && item.plainLyrics.trim();
     const isInst = item.instrumental;
     const isUpload = item.source === 'upload';
+    const isFavorite = item.is_favorite || item.source === 'favorite';
 
     let badges = '';
     if (isInst) badges += `<span class="badge badge-inst">Instrumental</span>`;
     if (hasSynced) badges += `<span class="badge badge-synced">Synced ♩</span>`;
     if (hasPlain && !isInst) badges += `<span class="badge badge-plain">Lyrics</span>`;
     if (isUpload) badges += `<span class="badge badge-plain" style="background: #f0eef8; color: #5a4a8a;">Upload</span>`;
+    if (isFavorite) badges += `<span class="badge badge-plain" style="background: #fff0e0; color: #c8451a;">⭐ Favorite</span>`;
 
     const dur = item.duration ? `${Math.floor(item.duration/60)}:${String(item.duration%60).padStart(2,'0')}` : '';
     const categoryBadge = item.category_name ? `<span class="badge" style="background: ${item.category_color}20; color: ${item.category_color}; display: inline-flex; align-items: center; gap: 4px;"><span style="width: 12px; height: 12px; display: inline-flex;">${getIconSVG(item.icon || 'music-note')}</span>${item.category_name}</span>` : '';
 
+    // Favorite button
+    const favoriteBtn = `
+      <button class="favorite-btn ${isFavorite ? 'active' : ''}" onclick="toggleFavorite(event, ${escapeForAttribute(JSON.stringify(item))})">
+        <svg viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+        </svg>
+      </button>
+    `;
+
     card.innerHTML = `
+      ${favoriteBtn}
       <div class="result-num">${String(i+1).padStart(2,'0')} / ${String(items.length).padStart(2,'0')}</div>
-      <div class="result-track">${escHtml(item.trackName || '—')}</div>
+      <div class="result-track">${escHtml(item.trackName || item.title || '—')}</div>
       <div class="result-artist">${escHtml(item.artistName || '—')}</div>
       <div class="result-badges">${badges}${categoryBadge}</div>
       <div class="result-album">
@@ -1652,6 +1908,10 @@ function showResults(items, isExact) {
       </div>`;
     grid.appendChild(card);
   });
+}
+
+function escapeForAttribute(str) {
+  return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 /* ---- modal ---- */
